@@ -1,0 +1,20 @@
+version: '3.9'
+
+services:
+  postgres:
+    container_name: organisation-service-database
+    image: postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-organisation_service}
+      POSTGRES_PORT: ${POSTGRES_PORT:-8632}
+      PGDATA: /data/postgres
+    volumes:
+      - postgres:/data/postgres
+    ports:
+      - "8632:5432"
+    restart: unless-stopped
+
+volumes:
+  postgres:

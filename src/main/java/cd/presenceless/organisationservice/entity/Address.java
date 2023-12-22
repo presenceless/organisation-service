@@ -8,35 +8,18 @@ import lombok.*;
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
-@ToString
+@Table(name = "organisation_address")
 public class Address {
     @Id
-    @GeneratedValue
+    @GeneratedValue(strategy = GenerationType.AUTO)
     private Long id;
 
     @OneToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "organisation_id")
     private Organisation organisation;
 
-    private String province, ville, commune, quartier, avenue, no;
-
-    public Address(
-            Organisation organisation,
-            String province,
-            String ville,
-            String commune,
-            String quartier,
-            String avenue,
-            String no
-    ) {
-        this.organisation = organisation;
-        this.province = province;
-        this.ville = ville;
-        this.commune = commune;
-        this.quartier = quartier;
-        this.avenue = avenue;
-        this.no = no;
-    }
+    private String province, ville,
+            commune, quartier, avenue, no;
 
     public String toString() {
         return

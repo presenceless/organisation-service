@@ -11,7 +11,7 @@ import lombok.NoArgsConstructor;
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
-@Table(name = "org_documents")
+@Table(name = "organisation_documents")
 public class Document {
     @Id
     @GeneratedValue(strategy = GenerationType.AUTO)
@@ -23,13 +23,5 @@ public class Document {
 
     private String fileName;
     private String fileType;
-    @Lob
-    private byte[] data;
-
-    public Document(Organisation organisation, String fileName, String fileType, byte[] data) {
-        this.fileName = fileName;
-        this.fileType = fileType;
-        this.data = data;
-        this.organisation = organisation;
-    }
+    private String url;
 }
