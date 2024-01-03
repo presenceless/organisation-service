@@ -17,14 +17,8 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.File;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.sql.Date;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 
 @Service
 public class OrganisationServiceImpl
@@ -39,39 +33,35 @@ public class OrganisationServiceImpl
     public String approvalNotificationRoutingKey;
     @Value("${rabbitmq.organisation-service.routing-key.rejection-notification}")
     public String rejectionNotificationRoutingKey;
+    @Value("${rabbitmq.organisation-service.routing-key.api-keys-notification}")
+    public String apiKeysNotificationRoutingKey;
 
-    private final Path rootDir = Paths.get("uploads");
     private final OrganisationRepository organisationRepository;
     private final DocumentRepository documentRepository;
     private final AddressRepository addressRepository;
     private final AmqpTemplate template;
+    private final FileService fileService;
+    private final JWTService jwtService;
 
     public OrganisationServiceImpl(
             OrganisationRepository organisationRepository,
             DocumentRepository documentRepository,
             AddressRepository addressRepository,
-            AmqpTemplate template)
+            AmqpTemplate template, FileService fileService, JWTService jwtService)
     {
         this.organisationRepository = organisationRepository;
         this.documentRepository = documentRepository;
         this.addressRepository = addressRepository;
         this.template = template;
-
-        File uploadDir = new File(rootDir.toUri());
-        if (!uploadDir.exists()) {
-            if (uploadDir.mkdir()) {
-                System.out.println("Directory is created!");
-            } else {
-                System.out.println("Failed to create directory!");
-            }
-        }
+        this.fileService = fileService;
+        this.jwtService = jwtService;
     }
 
     @Override
     public Document saveDocument(Organisation org, MultipartFile file) throws Exception {
         // https://www.baeldung.com/jpa-joincolumn-vs-mappedby
-        String fileName = StringUtils.cleanPath(Objects.requireNonNull(file.getOriginalFilename()));
-        String filePath = rootDir.resolve(fileName).toString();
+        String fileName = StringUtils.cleanPath(
+                Objects.requireNonNull(file.getOriginalFilename()));
 
         try {
             if(fileName.contains("..")) {
@@ -82,19 +72,20 @@ public class OrganisationServiceImpl
                 throw new Exception("File size exceeds maximum limit");
             }
 
+            final var fileInfo = fileService.uploadFile(file, org.getId());
+
             Document document = Document.builder()
-                    .fileName(fileName)
+                    .fileName(fileInfo.get("fileName"))
                     .fileType(file.getContentType())
                     .organisation(org)
-                    .url(filePath)
+                    .url(fileInfo.get("mediaLink"))
                     .build();
 
-            file.transferTo(new File(filePath));
             return documentRepository.save(document);
         } catch (MaxUploadSizeExceededException e) {
             throw new MaxUploadSizeExceededException(file.getSize());
         } catch (Exception e) {
-            throw new Exception("Could not save File: " + fileName);
+            throw new Exception("Could not save File: " + e.getMessage());
         }
     }
 
@@ -143,8 +134,7 @@ public class OrganisationServiceImpl
 
         return Arrays.stream(files).map(file -> {
             try {
-                final var attachment = saveDocument(org, file);
-                return attachment.getUrl();
+                return saveDocument(org, file).getUrl();
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
@@ -167,12 +157,12 @@ public class OrganisationServiceImpl
     }
 
     @Override
-    public void approve(Long organisation) {
-        final var org = organisationRepository.findById(organisation)
+    public boolean approve(Long orgId) throws NoSuchElementException {
+        final var org = organisationRepository.findById(orgId)
                 .orElseThrow();
 
         org.set_approved(true);
-        organisationRepository.save(org);
+        final var saved = organisationRepository.save(org);
 
         template.convertAndSend(
                 exchange,
@@ -183,6 +173,20 @@ public class OrganisationServiceImpl
                         .organisationRegNumber(org.getRegNumber())
                         .build()
         );
+
+        // send api keys to the organisation
+        template.convertAndSend(
+                exchange,
+                apiKeysNotificationRoutingKey,
+                AppNotifyResponse.builder()
+                        .organisationName(org.getName())
+                        .organisationEmail(org.getEmail())
+                        .organisationRegNumber(org.getRegNumber())
+                        .extra(generateToken(org.getId()))
+                        .build()
+        );
+
+        return saved.is_approved();
     }
 
     @Override
@@ -231,6 +235,25 @@ public class OrganisationServiceImpl
         }
 
         return orgResponse;
+    }
+
+    /**
+     * @param orgId - id of the organisation
+     * @return a map containing the sandbox and production tokens
+     */
+    @Override
+    public Map<String, Object> generateToken(Long orgId) {
+        Map<String, Object> sandboxClaims = new HashMap<>();
+        sandboxClaims.put("sandbox", true);
+        sandboxClaims.put("rate limit", 100);
+
+        Map<String, Object> productionClaims = new HashMap<>();
+        productionClaims.put("production", true);
+
+        return Map.of(
+                "sandbox", jwtService.createToken(orgId, sandboxClaims),
+                "production", jwtService.createToken(orgId, productionClaims)
+        );
     }
 
     private boolean isApprovedFilter(Map<String, Boolean> params, Organisation org) {

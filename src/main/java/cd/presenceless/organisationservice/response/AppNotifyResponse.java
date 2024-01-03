@@ -3,6 +3,8 @@ package cd.presenceless.organisationservice.response;
 
 import lombok.*;
 
+import java.util.Map;
+
 @Builder
 @Data
 @AllArgsConstructor
@@ -12,5 +14,5 @@ public class AppNotifyResponse {
     private String organisationName;
     private String organisationEmail;
     private String organisationRegNumber;
-    private String message;
+    private Map<String, Object> extra;
 }

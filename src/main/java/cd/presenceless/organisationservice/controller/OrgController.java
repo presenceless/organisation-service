@@ -1,8 +1,9 @@
 package cd.presenceless.organisationservice.controller;
 
-import cd.presenceless.organisationservice.client.IdentityClient;
+import cd.presenceless.organisationservice.request.IdentityReq;
 import cd.presenceless.organisationservice.request.OrgRequest;
 import cd.presenceless.organisationservice.response.OrgResponse;
+import cd.presenceless.organisationservice.service.IdentityService;
 import cd.presenceless.organisationservice.service.OrganisationService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -25,11 +26,13 @@ public class OrgController {
     // If the request is rejected, the organization will be notified.
 
     // When the organization is approved, an entry will be created in notification queue.
-    private final IdentityClient identityClient;
+
+
+    private final IdentityService identityService;
     private final OrganisationService organisationService;
 
-    public OrgController(IdentityClient identityClient, OrganisationService organisationService) {
-        this.identityClient = identityClient;
+    public OrgController(IdentityService identityService, OrganisationService organisationService) {
+        this.identityService = identityService;
         this.organisationService = organisationService;
     }
 
@@ -42,16 +45,26 @@ public class OrgController {
         return ResponseEntity.ok(organisationService.getAllOrgs(params));
     }
 
-    @GetMapping("/hi")
-    public String hi() {
-        return identityClient.hello();
+    @PostMapping("/identify")
+    public Object identify(
+            @RequestBody IdentityReq id,
+            @RequestParam(value = "address", required = false) boolean address,
+            @RequestParam(value = "photograph", required = false) boolean photograph,
+            @RequestParam(value = "mobileNumber", required = false) boolean mobileNumber,
+            @RequestParam(value = "email", required = false) boolean email
+    ) {
+        return identityService.identify(id, Map.of(
+                "address", address,
+                "photograph", photograph,
+                "mobileNumber", mobileNumber,
+                "email", email
+        ));
     }
 
     @PostMapping(value = "/")
     public ResponseEntity<OrgResponse> register(@RequestBody OrgRequest org) {
         try {
             final var org_ = organisationService.registerOrganisation(org);
-
             return ResponseEntity.status(HttpStatus.CREATED).body(org_);
         } catch (Exception e) {
             return ResponseEntity.badRequest().build();
@@ -59,8 +72,10 @@ public class OrgController {
     }
 
     @PostMapping("/{orgId}/documents")
-    public ResponseEntity<Object>
-        uploadDocuments(@PathVariable Long orgId, @RequestParam MultipartFile[] docs) {
+    public ResponseEntity<Object> uploadDocuments(
+            @PathVariable Long orgId,
+            @RequestParam("files") MultipartFile[] docs)
+    {
         try {
             final var org = organisationService.uploadDocuments(orgId, docs);
 
@@ -68,13 +83,6 @@ public class OrgController {
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }
-    }
-
-    @GetMapping("/{orgId}/api-keys")
-    public String apiKeys(@PathVariable String orgId) {
-        // get API keys
-        // Sandbox and Production
-        return orgId;
     }
 
     @PostMapping("/citizen/identity")
@@ -86,16 +94,21 @@ public class OrgController {
 
     @GetMapping("/{orgId}/approve")
     public ResponseEntity<Boolean> approve(@PathVariable Long orgId) {
-        // email the organization
-        // generate API keys
-        organisationService.approve(orgId);
-        return ResponseEntity.ok(true);
+        try {
+            boolean success = organisationService.approve(orgId);
+            return ResponseEntity.ok(success);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().build();
+        }
     }
 
     @GetMapping("/{orgId}/reject")
     public ResponseEntity<Boolean> reject(@PathVariable Long orgId) {
-        // email the organization
-        organisationService.deny(orgId);
-        return ResponseEntity.ok(true);
+        try {
+            organisationService.deny(orgId);
+            return ResponseEntity.ok(true);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().build();
+        }
     }
 }
